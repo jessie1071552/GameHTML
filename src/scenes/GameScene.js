@@ -1,58 +1,61 @@
 import { DungeonGenerator } from '../game/DungeonGenerator.js';
+import { Enemy }            from '../game/Enemy.js';
+import { BattleSystem }     from '../game/BattleSystem.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, TILE, CAMERA_LERP } from '../utils/constants.js';
 
+// フロアごとの敵スポーン数
+const ENEMY_COUNT = 4;
+
+// 敵種別テーブル（フロアが上がるほど強い敵が出やすい）
+const ENEMY_TYPES = ['slime', 'goblin', 'orc'];
+
 /**
- * GameScene - メインゲームシーン（フェーズ1: タイルマップ表示 + 移動）
+ * GameScene - フェーズ2: ターン制 + 敵スポーン・AI・戦闘
  *
- * フェーズ1スコープ:
- *   - プロシージャルダンジョン生成
- *   - タイルマップ描画
- *   - プレイヤー表示・8方向移動（矢印/WASD/ドット絵）
- *   - カメラのプレイヤー追従
- *   - UI: フロア番号・座標表示
+ * ターンの流れ:
+ *   1. プレイヤーが移動/攻撃入力
+ *   2. プレイヤー行動を解決（移動 or 隣接敵への攻撃）
+ *   3. 敵AI行動を解決（全敵を順に処理）
+ *   4. 次の入力を受付
  */
 export class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' });
 
-    this._map    = null;   // 2D tile array
+    this._map    = null;
     this._rooms  = [];
     this._floor  = 1;
-
-    // タイルスプライト群
     this._tileSprites = [];
 
-    // プレイヤー
-    this._player = null;
-    this._playerTileX = 0;
-    this._playerTileY = 0;
+    // プレイヤーロジック用オブジェクト（Enemy と同形式のフィールドを持つ）
+    this._playerData = null;
+    this._playerSprite = null;
 
-    // 入力フラグ（キーリピート制御）
-    this._moveReady = true;
-    this._moveCooldown = 150; // ms
+    // 敵リスト
+    this._enemies = [];          // Enemy インスタンス配列
+    this._enemySprites = new Map(); // instanceId → Phaser.Image
+
+    // ターン制御
+    this._turnLocked = false;    // true の間は入力を受け付けない
+
+    // HP表示テキスト
+    this._hpTexts = new Map();   // instanceId → Phaser.Text
   }
 
-  // ──────────────────────────────────────────────────────────
-  //  create
   // ──────────────────────────────────────────────────────────
   create() {
     this._generateDungeon();
     this._drawTiles();
     this._spawnPlayer();
+    this._spawnEnemies();
     this._setupCamera();
     this._setupInput();
     this._buildUI();
-
-    // リサイズ対応
-    this.scale.on('resize', this._onResize, this);
   }
 
   // ──────────────────────────────────────────────────────────
-  //  update
-  // ──────────────────────────────────────────────────────────
-  update(_time, _delta) {
-    if (!this._moveReady) return;
-    this._handleMovement();
+  update() {
+    // 入力はキーイベントで処理するため update では何もしない
   }
 
   // ──────────────────────────────────────────────────────────
@@ -70,75 +73,114 @@ export class GameScene extends Phaser.Scene {
   //  タイル描画
   // ──────────────────────────────────────────────────────────
   _drawTiles() {
-    // 既存タイルをすべて破棄（再生成時のため）
     this._tileSprites.forEach(row => row.forEach(s => s.destroy()));
     this._tileSprites = [];
 
     for (let y = 0; y < MAP_HEIGHT; y++) {
       const row = [];
       for (let x = 0; x < MAP_WIDTH; x++) {
-        const tileType = this._map[y][x];
-        const key = this._tileKey(tileType);
+        const t = this._map[y][x];
+        const key = t === TILE.FLOOR ? 'tile_floor'
+                  : t === TILE.STAIRS ? 'tile_stairs'
+                  : 'tile_wall';
         const px = x * TILE_SIZE + TILE_SIZE / 2;
         const py = y * TILE_SIZE + TILE_SIZE / 2;
-        const sprite = this.add.image(px, py, key);
-
-        // 壁は少し暗くする（FOG感）
-        if (tileType === TILE.WALL) {
-          sprite.setAlpha(0.85);
-        }
-
-        row.push(sprite);
+        const s = this.add.image(px, py, key);
+        if (t === TILE.WALL) s.setAlpha(0.85);
+        row.push(s);
       }
       this._tileSprites.push(row);
     }
   }
 
-  _tileKey(tileType) {
-    switch (tileType) {
-      case TILE.FLOOR:  return 'tile_floor';
-      case TILE.STAIRS: return 'tile_stairs';
-      default:          return 'tile_wall';
+  // ──────────────────────────────────────────────────────────
+  //  プレイヤー
+  // ──────────────────────────────────────────────────────────
+  _spawnPlayer() {
+    if (this._playerSprite) this._playerSprite.destroy();
+
+    const { x, y } = this._startPos;
+    this._playerData = {
+      type: 'player',
+      hp: 60, maxHp: 60,
+      attack: 15, defense: 5,
+      position: { x, y },
+    };
+
+    const { px, py } = this._tileToWorld(x, y);
+    this._playerSprite = this.add.image(px, py, 'player').setDepth(10);
+    this._playerSprite.setAlpha(0);
+    this.tweens.add({ targets: this._playerSprite, alpha: 1, duration: 400 });
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  敵スポーン
+  // ──────────────────────────────────────────────────────────
+  _spawnEnemies() {
+    // 既存の敵スプライト・テキストを破棄
+    this._enemySprites.forEach(s => s.destroy());
+    this._enemySprites.clear();
+    this._hpTexts.forEach(t => t.destroy());
+    this._hpTexts.clear();
+    this._enemies = [];
+
+    const playerRoomIdx = this._findRoomIndex(this._playerData.position.x, this._playerData.position.y);
+
+    let placed = 0;
+    const maxTries = 100;
+
+    for (let i = 0; i < maxTries && placed < ENEMY_COUNT; i++) {
+      // プレイヤーと異なる部屋を選ぶ
+      const candidateRooms = this._rooms.filter((_, idx) => idx !== playerRoomIdx);
+      if (candidateRooms.length === 0) break;
+
+      const room = candidateRooms[Math.floor(Math.random() * candidateRooms.length)];
+      const tx = room.x + Math.floor(Math.random() * room.w);
+      const ty = room.y + Math.floor(Math.random() * room.h);
+
+      if (this._map[ty][tx] === TILE.WALL) continue;
+      if (this._isEnemyAt(tx, ty)) continue;
+
+      // フロアに応じて敵種別を選択
+      const typeIdx = Math.min(Math.floor(Math.random() * (1 + this._floor * 0.5)), ENEMY_TYPES.length - 1);
+      const charId  = ENEMY_TYPES[typeIdx];
+      const level   = Math.max(1, this._floor + Math.floor(Math.random() * 2) - 1);
+
+      const enemy = new Enemy(charId, { x: tx, y: ty }, level);
+      this._enemies.push(enemy);
+
+      const { px, py } = this._tileToWorld(tx, ty);
+      const textureKey = `enemy_${charId}`;
+      const sprite = this.add.image(px, py, textureKey).setDepth(9);
+      this._enemySprites.set(enemy.instanceId, sprite);
+
+      // HP表示（敵の上）
+      const hpText = this.add.text(px, py - 18, this._hpLabel(enemy), {
+        fontFamily: 'monospace',
+        fontSize: '10px',
+        color: '#ff6666',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(20);
+      this._hpTexts.set(enemy.instanceId, hpText);
+
+      placed++;
     }
   }
 
-  // ──────────────────────────────────────────────────────────
-  //  プレイヤースポーン
-  // ──────────────────────────────────────────────────────────
-  _spawnPlayer() {
-    if (this._player) this._player.destroy();
-
-    this._playerTileX = this._startPos.x;
-    this._playerTileY = this._startPos.y;
-
-    const { px, py } = this._tileToWorld(this._playerTileX, this._playerTileY);
-    this._player = this.add.image(px, py, 'player').setDepth(10);
-
-    // 着地アニメ
-    this._player.setAlpha(0);
-    this.tweens.add({
-      targets: this._player,
-      alpha: 1,
-      y: py,
-      duration: 400,
-      ease: 'Back.easeOut',
-    });
-  }
+  _hpLabel(enemy) { return `${enemy.hp}/${enemy.maxHp}`; }
 
   // ──────────────────────────────────────────────────────────
   //  カメラ
   // ──────────────────────────────────────────────────────────
   _setupCamera() {
-    const totalW = MAP_WIDTH  * TILE_SIZE;
-    const totalH = MAP_HEIGHT * TILE_SIZE;
-
-    this.cameras.main.setBounds(0, 0, totalW, totalH);
-    this.cameras.main.startFollow(this._player, true, CAMERA_LERP, CAMERA_LERP);
+    this.cameras.main.setBounds(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
+    this.cameras.main.startFollow(this._playerSprite, true, CAMERA_LERP, CAMERA_LERP);
     this.cameras.main.setZoom(1.5);
   }
 
   // ──────────────────────────────────────────────────────────
-  //  入力セットアップ
+  //  入力（キーダウンイベントでターンを進める）
   // ──────────────────────────────────────────────────────────
   _setupInput() {
     this._keys = this.input.keyboard.addKeys({
@@ -146,143 +188,194 @@ export class GameScene extends Phaser.Scene {
       down:  Phaser.Input.Keyboard.KeyCodes.DOWN,
       left:  Phaser.Input.Keyboard.KeyCodes.LEFT,
       right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
-      w:     Phaser.Input.Keyboard.KeyCodes.W,
-      a:     Phaser.Input.Keyboard.KeyCodes.A,
-      s:     Phaser.Input.Keyboard.KeyCodes.S,
-      d:     Phaser.Input.Keyboard.KeyCodes.D,
-      // 斜め
-      q:     Phaser.Input.Keyboard.KeyCodes.Q,
-      e:     Phaser.Input.Keyboard.KeyCodes.E,
-      z:     Phaser.Input.Keyboard.KeyCodes.Z,
-      c:     Phaser.Input.Keyboard.KeyCodes.C,
-      // 次の階段（デバッグ）
-      r:     Phaser.Input.Keyboard.KeyCodes.R,
+      w: Phaser.Input.Keyboard.KeyCodes.W,
+      a: Phaser.Input.Keyboard.KeyCodes.A,
+      s: Phaser.Input.Keyboard.KeyCodes.S,
+      d: Phaser.Input.Keyboard.KeyCodes.D,
+      q: Phaser.Input.Keyboard.KeyCodes.Q,
+      e: Phaser.Input.Keyboard.KeyCodes.E,
+      z: Phaser.Input.Keyboard.KeyCodes.Z,
+      c: Phaser.Input.Keyboard.KeyCodes.C,
+      r: Phaser.Input.Keyboard.KeyCodes.R,
     });
 
-    // 次フロアへ（Rキー: デバッグ用）
+    // 各キーのkeydownにターン処理をバインド
+    const dirKeys = ['up','down','left','right','w','a','s','d','q','e','z','c'];
+    dirKeys.forEach(k => {
+      this._keys[k].on('down', () => this._onDirectionKey());
+    });
+
     this._keys.r.on('down', () => this._nextFloor());
   }
 
-  // ──────────────────────────────────────────────────────────
-  //  移動処理
-  // ──────────────────────────────────────────────────────────
-  _handleMovement() {
-    const k = this._keys;
+  _onDirectionKey() {
+    if (this._turnLocked) return;
 
-    let dx = 0, dy = 0;
-
-    if      (k.left.isDown  || k.a.isDown) dx = -1;
-    else if (k.right.isDown || k.d.isDown) dx =  1;
-
-    if      (k.up.isDown    || k.w.isDown) dy = -1;
-    else if (k.down.isDown  || k.s.isDown) dy =  1;
-
-    // 斜め (Q/E/Z/C)
-    if (k.q.isDown) { dx = -1; dy = -1; }
-    if (k.e.isDown) { dx =  1; dy = -1; }
-    if (k.z.isDown) { dx = -1; dy =  1; }
-    if (k.c.isDown) { dx =  1; dy =  1; }
-
+    const dx = this._getDX();
+    const dy = this._getDY();
     if (dx === 0 && dy === 0) return;
 
-    const nx = this._playerTileX + dx;
-    const ny = this._playerTileY + dy;
+    this._doPlayerTurn(dx, dy);
+  }
 
-    if (!this._isWalkable(nx, ny)) return;
+  _getDX() {
+    const k = this._keys;
+    if (k.left.isDown  || k.a.isDown) return -1;
+    if (k.right.isDown || k.d.isDown) return  1;
+    if (k.q.isDown || k.z.isDown)     return -1;
+    if (k.e.isDown || k.c.isDown)     return  1;
+    return 0;
+  }
 
-    this._playerTileX = nx;
-    this._playerTileY = ny;
+  _getDY() {
+    const k = this._keys;
+    if (k.up.isDown   || k.w.isDown) return -1;
+    if (k.down.isDown || k.s.isDown) return  1;
+    if (k.q.isDown || k.e.isDown)    return -1;
+    if (k.z.isDown || k.c.isDown)    return  1;
+    return 0;
+  }
 
-    const { px, py } = this._tileToWorld(nx, ny);
+  // ──────────────────────────────────────────────────────────
+  //  ターン処理
+  // ──────────────────────────────────────────────────────────
+  _doPlayerTurn(dx, dy) {
+    this._turnLocked = true;
 
-    // スムーズ移動トゥイーン
-    this.tweens.add({
-      targets: this._player,
-      x: px,
-      y: py,
-      duration: 120,
-      ease: 'Linear',
+    const px  = this._playerData.position.x;
+    const py  = this._playerData.position.y;
+    const nx  = px + dx;
+    const ny  = py + dy;
+
+    // 隣接マスに敵がいるか
+    const target = this._enemies.find(e => e.position.x === nx && e.position.y === ny);
+
+    if (target) {
+      // ── プレイヤー攻撃 ──────────────────────────────────────
+      const dmg = BattleSystem.applyAttack(this._playerData, target);
+      this._showDamageText(nx, ny, dmg, '#ffffff');
+      this._updateEnemyHpText(target);
+
+      if (target.isDead) {
+        this._logMessage(`${target.characterId}を倒した！(+${target.expDrop}exp)`);
+        this._removeEnemy(target);
+      } else {
+        this._logMessage(`${target.characterId}に${dmg}ダメージ！`);
+      }
+    } else if (this._isWalkable(nx, ny)) {
+      // ── 移動 ─────────────────────────────────────────────────
+      this._playerData.position.x = nx;
+      this._playerData.position.y = ny;
+      const { px: wpx, py: wpy } = this._tileToWorld(nx, ny);
+      this.tweens.add({
+        targets: this._playerSprite,
+        x: wpx, y: wpy,
+        duration: 100,
+        ease: 'Linear',
+      });
+      this._updateCoordText();
+
+      // 階段チェック
+      if (this._map[ny][nx] === TILE.STAIRS) {
+        this.time.delayedCall(150, () => {
+          this.cameras.main.flash(300, 200, 255, 200);
+          this.time.delayedCall(350, () => this._nextFloor());
+        });
+        this._turnLocked = false;
+        return;
+      }
+    } else {
+      // 移動も攻撃もできない
+      this._turnLocked = false;
+      return;
+    }
+
+    // プレイヤー行動後に敵ターンを遅延実行
+    this.time.delayedCall(120, () => {
+      this._doEnemyTurns();
+      this._updateHpBar();
+      this._turnLocked = false;
     });
+  }
 
-    // クールダウン
-    this._moveReady = false;
-    this.time.delayedCall(this._moveCooldown, () => { this._moveReady = true; });
+  // ──────────────────────────────────────────────────────────
+  //  敵AIターン
+  // ──────────────────────────────────────────────────────────
+  _doEnemyTurns() {
+    const playerPos = this._playerData.position;
 
-    // 座標表示更新
-    this._updateCoordText();
+    for (const enemy of this._enemies) {
+      if (enemy.isDead) continue;
 
-    // 階段チェック
-    if (this._map[ny][nx] === TILE.STAIRS) {
-      this._onStairs();
+      const action = enemy.decideAction(
+        playerPos,
+        (x, y) => this._isWalkable(x, y),
+        (ex, ey) => this._isPlayerInSameRoom(ex, ey),
+        (x, y)  => x === playerPos.x && y === playerPos.y
+                || this._isEnemyAt(x, y, enemy.instanceId),
+      );
+
+      if (action === null) {
+        // 隣接 → 攻撃
+        const dmg = BattleSystem.applyAttack(enemy, this._playerData);
+        this._showDamageText(playerPos.x, playerPos.y, dmg, '#ff4444');
+        this._logMessage(`${enemy.characterId}に${dmg}ダメージを受けた！`);
+
+        if (this._playerData.hp <= 0) {
+          this._gameOver();
+          return;
+        }
+      } else {
+        // 移動
+        enemy.position.x = action.x;
+        enemy.position.y = action.y;
+
+        const sprite = this._enemySprites.get(enemy.instanceId);
+        const hpText = this._hpTexts.get(enemy.instanceId);
+        const { px, py } = this._tileToWorld(action.x, action.y);
+
+        if (sprite) {
+          this.tweens.add({ targets: sprite, x: px, y: py, duration: 100 });
+        }
+        if (hpText) {
+          this.tweens.add({ targets: hpText, x: px, y: py - 18, duration: 100 });
+        }
+      }
     }
   }
 
+  // ──────────────────────────────────────────────────────────
+  //  ユーティリティ
+  // ──────────────────────────────────────────────────────────
   _isWalkable(x, y) {
     if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) return false;
     return this._map[y][x] !== TILE.WALL;
   }
 
-  // ──────────────────────────────────────────────────────────
-  //  階段
-  // ──────────────────────────────────────────────────────────
-  _onStairs() {
-    // フラッシュ演出後にフロア遷移
-    this.cameras.main.flash(300, 200, 255, 200);
-    this.time.delayedCall(350, () => this._nextFloor());
+  _isEnemyAt(x, y, excludeId = null) {
+    return this._enemies.some(e =>
+      !e.isDead &&
+      e.instanceId !== excludeId &&
+      e.position.x === x && e.position.y === y
+    );
   }
 
-  _nextFloor() {
-    this._floor++;
-    this._generateDungeon();
-    this._drawTiles();
-    this._spawnPlayer();
-    this.cameras.main.startFollow(this._player, true, CAMERA_LERP, CAMERA_LERP);
-    this._updateFloorText();
+  /** プレイヤーと enemy の座標が同じ rooms[] に含まれるか */
+  _isPlayerInSameRoom(ex, ey) {
+    const pp = this._playerData.position;
+    return this._rooms.some(r =>
+      this._inRoom(r, ex, ey) && this._inRoom(r, pp.x, pp.y)
+    );
   }
 
-  // ──────────────────────────────────────────────────────────
-  //  UI
-  // ──────────────────────────────────────────────────────────
-  _buildUI() {
-    // カメラに追従しないUI用のオーバーレイカメラを使う
-    // → setScrollFactor(0) で固定
-
-    const style = {
-      fontFamily: 'monospace',
-      fontSize: '14px',
-      color: '#aaffaa',
-      stroke: '#001100',
-      strokeThickness: 3,
-    };
-
-    this._floorText = this.add.text(10, 10, this._floorLabel(), style)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    this._coordText = this.add.text(10, 30, this._coordLabel(), style)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    // 操作ガイド
-    this.add.text(10, this.scale.height - 16,
-      '矢印/WASD: 移動  Q/E/Z/C: 斜め  R: 次フロア(デバッグ)', {
-      fontFamily: 'monospace',
-      fontSize: '11px',
-      color: '#557755',
-      stroke: '#000000',
-      strokeThickness: 2,
-    }).setScrollFactor(0).setDepth(100);
+  _inRoom(r, x, y) {
+    return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
   }
 
-  _floorLabel()  { return `Floor ${this._floor}`; }
-  _coordLabel()  { return `(${this._playerTileX}, ${this._playerTileY})`; }
+  _findRoomIndex(x, y) {
+    return this._rooms.findIndex(r => this._inRoom(r, x, y));
+  }
 
-  _updateFloorText() { this._floorText?.setText(this._floorLabel()); }
-  _updateCoordText() { this._coordText?.setText(this._coordLabel()); }
-
-  // ──────────────────────────────────────────────────────────
-  //  ユーティリティ
-  // ──────────────────────────────────────────────────────────
   _tileToWorld(tx, ty) {
     return {
       px: tx * TILE_SIZE + TILE_SIZE / 2,
@@ -290,8 +383,197 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  _onResize(gameSize) {
-    // UI位置調整
-    // （現在はscrollFactor(0)で対応済み）
+  // ──────────────────────────────────────────────────────────
+  //  敵の除去
+  // ──────────────────────────────────────────────────────────
+  _removeEnemy(enemy) {
+    const sprite = this._enemySprites.get(enemy.instanceId);
+    const hpText = this._hpTexts.get(enemy.instanceId);
+
+    if (sprite) {
+      this.tweens.add({
+        targets: sprite,
+        alpha: 0, y: sprite.y - 10,
+        duration: 300,
+        onComplete: () => sprite.destroy(),
+      });
+    }
+    if (hpText) {
+      hpText.destroy();
+      this._hpTexts.delete(enemy.instanceId);
+    }
+
+    this._enemySprites.delete(enemy.instanceId);
+    this._enemies = this._enemies.filter(e => e.instanceId !== enemy.instanceId);
   }
+
+  _updateEnemyHpText(enemy) {
+    const t = this._hpTexts.get(enemy.instanceId);
+    if (t) t.setText(this._hpLabel(enemy));
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  ダメージ数字エフェクト
+  // ──────────────────────────────────────────────────────────
+  _showDamageText(tx, ty, dmg, color = '#ffffff') {
+    const { px, py } = this._tileToWorld(tx, ty);
+    const t = this.add.text(px, py - 10, `-${dmg}`, {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color,
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(50);
+
+    this.tweens.add({
+      targets: t,
+      y: py - 35,
+      alpha: 0,
+      duration: 700,
+      ease: 'Cubic.easeOut',
+      onComplete: () => t.destroy(),
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  ゲームオーバー
+  // ──────────────────────────────────────────────────────────
+  _gameOver() {
+    this._turnLocked = true;
+    this.cameras.main.flash(500, 255, 0, 0);
+
+    const cx = this.scale.width  / 2;
+    const cy = this.scale.height / 2;
+
+    this.add.text(cx, cy, 'GAME OVER', {
+      fontFamily: 'monospace',
+      fontSize: '36px',
+      color: '#ff4444',
+      stroke: '#000000',
+      strokeThickness: 5,
+    }).setScrollFactor(0).setOrigin(0.5).setDepth(200);
+
+    this.add.text(cx, cy + 50, 'SPACEでタイトルへ', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#ffaaaa',
+    }).setScrollFactor(0).setOrigin(0.5).setDepth(200);
+
+    this.input.keyboard.once('keydown-SPACE', () => this.scene.start('TitleScene'));
+    this.input.once('pointerdown', () => this.scene.start('TitleScene'));
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  フロア遷移
+  // ──────────────────────────────────────────────────────────
+  _nextFloor() {
+    this._floor++;
+
+    // 敵スプライト・テキストをすべて破棄
+    this._enemySprites.forEach(s => s.destroy());
+    this._enemySprites.clear();
+    this._hpTexts.forEach(t => t.destroy());
+    this._hpTexts.clear();
+    this._enemies = [];
+
+    this._generateDungeon();
+    this._drawTiles();
+
+    // プレイヤーHPは引き継ぎ
+    const { x, y } = this._startPos;
+    this._playerData.position = { x, y };
+    const { px, py } = this._tileToWorld(x, y);
+    this._playerSprite.setPosition(px, py);
+
+    this._spawnEnemies();
+    this.cameras.main.startFollow(this._playerSprite, true, CAMERA_LERP, CAMERA_LERP);
+    this._updateFloorText();
+    this._updateHpBar();
+    this._logMessage(`--- B${this._floor}Fに降りた ---`);
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  UI
+  // ──────────────────────────────────────────────────────────
+  _buildUI() {
+    const style = {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      color: '#aaffaa',
+      stroke: '#001100',
+      strokeThickness: 3,
+    };
+
+    this._floorText = this.add.text(10, 10, this._floorLabel(), style)
+      .setScrollFactor(0).setDepth(100);
+
+    this._coordText = this.add.text(10, 28, this._coordLabel(), style)
+      .setScrollFactor(0).setDepth(100);
+
+    // HPバー
+    this._hpBarBg = this.add.graphics().setScrollFactor(0).setDepth(100);
+    this._hpBarFg = this.add.graphics().setScrollFactor(0).setDepth(101);
+    this._hpLabel2 = this.add.text(10, 46, '', style).setScrollFactor(0).setDepth(102);
+    this._updateHpBar();
+
+    // メッセージログ（下部）
+    this._logLines = [];
+    for (let i = 0; i < 3; i++) {
+      this._logLines.push(
+        this.add.text(10, this.scale.height - 14 - i * 14, '', {
+          fontFamily: 'monospace',
+          fontSize: '11px',
+          color: '#ccffcc',
+          stroke: '#000000',
+          strokeThickness: 2,
+        }).setScrollFactor(0).setDepth(100)
+      );
+    }
+    this._logMessages = [];
+
+    // 操作ガイド（右下）
+    this.add.text(this.scale.width - 8, this.scale.height - 8,
+      '矢印/WASD: 移動・攻撃  Q/E/Z/C: 斜め  R: 次フロア', {
+      fontFamily: 'monospace',
+      fontSize: '10px',
+      color: '#446644',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setScrollFactor(0).setDepth(100).setOrigin(1, 1);
+  }
+
+  _updateHpBar() {
+    const p   = this._playerData;
+    const rat = p.hp / p.maxHp;
+    const W = 120, H = 10;
+    const X = 10, Y = 62;
+
+    this._hpBarBg.clear();
+    this._hpBarBg.fillStyle(0x222222);
+    this._hpBarBg.fillRect(X, Y, W, H);
+
+    this._hpBarFg.clear();
+    const col = rat > 0.5 ? 0x44dd44 : rat > 0.25 ? 0xdddd44 : 0xdd4444;
+    this._hpBarFg.fillStyle(col);
+    this._hpBarFg.fillRect(X, Y, Math.floor(W * rat), H);
+
+    this._hpLabel2.setText(`HP ${p.hp}/${p.maxHp}`);
+  }
+
+  _logMessage(msg) {
+    this._logMessages.unshift(msg);
+    if (this._logMessages.length > 3) this._logMessages.length = 3;
+    this._logLines.forEach((t, i) => {
+      t.setText(this._logMessages[i] ?? '');
+    });
+  }
+
+  _floorLabel()  { return `B${this._floor}F`; }
+  _coordLabel()  {
+    const p = this._playerData?.position;
+    return p ? `(${p.x}, ${p.y})` : '';
+  }
+
+  _updateFloorText() { this._floorText?.setText(this._floorLabel()); }
+  _updateCoordText() { this._coordText?.setText(this._coordLabel()); }
 }

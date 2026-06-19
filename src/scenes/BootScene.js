@@ -50,6 +50,7 @@ export class BootScene extends Phaser.Scene {
     // プロシージャルテクスチャをここで生成する（preloadは非同期だがcreateは同期）
     this._generateTileTextures();
     this._generatePlayerTexture();
+    this._generateEnemyTextures();
 
     this.scene.start('TitleScene');
   }
@@ -136,5 +137,61 @@ export class BootScene extends Phaser.Scene {
 
     gfx.generateTexture('player', SIZE, SIZE);
     gfx.destroy();
+  }
+
+  // ── 敵テクスチャ生成 ───────────────────────────────────────
+  _generateEnemyTextures() {
+    const SIZE = 28;
+
+    // スライム（緑・丸い）
+    const slime = this.make.graphics({ x: 0, y: 0, add: false });
+    slime.fillStyle(0x000000, 0.25);
+    slime.fillEllipse(14, 26, 18, 6);
+    slime.fillStyle(0x44cc44);
+    slime.fillEllipse(14, 14, 20, 16);
+    slime.fillStyle(0x66ee66, 0.6);
+    slime.fillEllipse(10, 10, 7, 5);
+    slime.fillStyle(0x111111);
+    slime.fillCircle(11, 14, 2);
+    slime.fillCircle(17, 14, 2);
+    slime.fillStyle(0xffffff, 0.8);
+    slime.fillCircle(12, 13, 1);
+    slime.fillCircle(18, 13, 1);
+    slime.generateTexture('enemy_slime', SIZE, SIZE);
+    slime.destroy();
+
+    // ゴブリン（赤紫・二足歩行）
+    const goblin = this.make.graphics({ x: 0, y: 0, add: false });
+    goblin.fillStyle(0x000000, 0.25);
+    goblin.fillEllipse(14, 26, 18, 6);
+    goblin.fillStyle(0x993344);
+    goblin.fillRoundedRect(8, 13, 12, 12, 2);
+    goblin.fillStyle(0xcc4466);
+    goblin.fillCircle(14, 9, 6);
+    goblin.fillStyle(0x111111);
+    goblin.fillCircle(11, 9, 1.5);
+    goblin.fillCircle(17, 9, 1.5);
+    goblin.fillStyle(0xffaa00);
+    goblin.fillTriangle(10,6, 13,3, 12,7);
+    goblin.fillTriangle(18,6, 15,3, 16,7);
+    goblin.generateTexture('enemy_goblin', SIZE, SIZE);
+    goblin.destroy();
+
+    // オーク（青灰・大柄）
+    const orc = this.make.graphics({ x: 0, y: 0, add: false });
+    orc.fillStyle(0x000000, 0.3);
+    orc.fillEllipse(14, 27, 22, 7);
+    orc.fillStyle(0x336688);
+    orc.fillRoundedRect(5, 12, 18, 14, 3);
+    orc.fillStyle(0x4488aa);
+    orc.fillCircle(14, 8, 8);
+    orc.fillStyle(0x111111);
+    orc.fillCircle(10, 8, 2);
+    orc.fillCircle(18, 8, 2);
+    orc.fillStyle(0xdddddd);
+    orc.fillTriangle(11,12, 13,10, 12,13);
+    orc.fillTriangle(17,12, 15,10, 16,13);
+    orc.generateTexture('enemy_orc', SIZE, SIZE);
+    orc.destroy();
   }
 }
