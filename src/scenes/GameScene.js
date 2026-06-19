@@ -561,9 +561,17 @@ export class GameScene extends Phaser.Scene {
     this._coordText = this.add.text(10, 28, this._coordLabel(), style)
       .setScrollFactor(0).setDepth(100);
 
-    // HPバー
-    this._hpBarBg = this.add.graphics().setScrollFactor(0).setDepth(100);
-    this._hpBarFg = this.add.graphics().setScrollFactor(0).setDepth(101);
+    // HPパネル背景
+    this._hpPanel = this.add.rectangle(75, 58, 150, 40, 0x000000, 0.55)
+      .setScrollFactor(0).setDepth(99);
+
+    // HPバー背景・前景（RenderTextureで代替）
+    this._hpBarBgImg = this.add.rectangle(10 + 60, 62 + 5, 120, 10, 0x333333)
+      .setScrollFactor(0).setDepth(100).setOrigin(0.5, 0.5);
+
+    this._hpBarFgImg = this.add.rectangle(10, 62, 120, 10, 0x44dd44)
+      .setScrollFactor(0).setDepth(101).setOrigin(0, 0);
+
     this._hpLabel2 = this.add.text(10, 46, '', style).setScrollFactor(0).setDepth(102);
     this._updateHpBar();
 
@@ -599,14 +607,13 @@ export class GameScene extends Phaser.Scene {
     const W = 120, H = 10;
     const X = 10, Y = 62;
 
-    this._hpBarBg.clear();
-    this._hpBarBg.fillStyle(0x222222);
-    this._hpBarBg.fillRect(X, Y, W, H);
+    // 前景バーの幅を比率で変える
+    const fgW = Math.max(1, Math.floor(W * rat));
+    this._hpBarFgImg.setSize(fgW, H);
 
-    this._hpBarFg.clear();
+    // HP残量で色を変える
     const col = rat > 0.5 ? 0x44dd44 : rat > 0.25 ? 0xdddd44 : 0xdd4444;
-    this._hpBarFg.fillStyle(col);
-    this._hpBarFg.fillRect(X, Y, Math.floor(W * rat), H);
+    this._hpBarFgImg.setFillStyle(col);
 
     this._hpLabel2.setText(`HP ${p.hp}/${p.maxHp}`);
   }
