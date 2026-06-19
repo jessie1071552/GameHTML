@@ -145,9 +145,9 @@ export class GameScene extends Phaser.Scene {
           if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT)
             vis[y][x] = true;
     } else {
-      // 廊下: 周囲2マス
-      for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++) {
+      // 廊下: 周囲4マス（もう少し広く見える）
+      for (let dy = -4; dy <= 4; dy++)
+        for (let dx = -4; dx <= 4; dx++) {
           const nx = pp.x + dx, ny = pp.y + dy;
           if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT)
             vis[ny][nx] = true;

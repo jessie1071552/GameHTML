@@ -6,24 +6,23 @@ import { UIScene }    from './scenes/UIScene.js';
 const config = {
   type: Phaser.AUTO,
 
-  width:  800,
-  height: 600,
-
   backgroundColor: '#0d0d1a',
 
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,   // ウィンドウサイズに完全追従
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    width:  '100%',
+    height: '100%',
   },
 
   scene: [BootScene, TitleScene, GameScene, UIScene],
 
-  // ピクセルパーフェクトなドット絵に向けてアンチエイリアス無効化
   render: {
     antialias: false,
     pixelArt: true,
   },
+
+  parent: 'game-container',
 };
 
-// グローバル参照（デバッグ用）
 window.game = new Phaser.Game(config);
