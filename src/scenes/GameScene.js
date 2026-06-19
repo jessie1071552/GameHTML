@@ -4,7 +4,7 @@ import { BattleSystem }     from '../game/BattleSystem.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, TILE, CAMERA_LERP } from '../utils/constants.js';
 
 // フロアごとの敵スポーン数
-const ENEMY_COUNT = 4;
+const ENEMY_COUNT = 8;
 
 // 敵種別テーブル（フロアが上がるほど強い敵が出やすい）
 const ENEMY_TYPES = ['slime', 'goblin', 'orc'];
