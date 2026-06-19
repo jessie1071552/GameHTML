@@ -1,5 +1,5 @@
 // ===== ゲーム定数 =====
-export const TILE_SIZE = 32;
+export const TILE_SIZE = 24;
 
 export const MAP_WIDTH  = 50;   // タイル数（広めのマップ）
 export const MAP_HEIGHT = 36;
