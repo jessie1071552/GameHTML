@@ -205,7 +205,11 @@ export class GameScene extends Phaser.Scene {
       this._keys[k].on('down', () => this._onDirectionKey());
     });
 
-    this._keys.r.on('down', () => this._nextFloor());
+    this._keys.r.on('down', () => {
+      if (this._turnLocked) return;
+      this._turnLocked = true;
+      this._startFloorTransition();
+    });
   }
 
   _onDirectionKey() {
@@ -277,11 +281,8 @@ export class GameScene extends Phaser.Scene {
 
       // 階段チェック
       if (this._map[ny][nx] === TILE.STAIRS) {
-        this.time.delayedCall(150, () => {
-          this.cameras.main.flash(300, 200, 255, 200);
-          this.time.delayedCall(350, () => this._nextFloor());
-        });
-        this._turnLocked = false;
+        this._turnLocked = true;
+        this._startFloorTransition();
         return;
       }
     } else {
@@ -464,8 +465,61 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ──────────────────────────────────────────────────────────
-  //  フロア遷移
+  //  フロア遷移（フェード演出）
   // ──────────────────────────────────────────────────────────
+
+  _startFloorTransition() {
+    // カメラをフェードアウト → 真っ黒の間に再生成 → フェードイン
+    this.cameras.main.fadeOut(300, 0, 0, 0);
+
+    this.cameras.main.once('camerafadeoutcomplete', () => {
+      this._nextFloor();
+
+      // フェードイン
+      this.cameras.main.fadeIn(400, 0, 0, 0);
+
+      // 階層バナーを表示
+      this._showFloorBanner();
+
+      this.cameras.main.once('camerafadeincomplete', () => {
+        this._turnLocked = false;
+      });
+    });
+  }
+
+  /** 画面中央に「B○F」を大きく一瞬表示するバナー */
+  _showFloorBanner() {
+    const cx = this.scale.width  / 2;
+    const cy = this.scale.height / 2;
+
+    const bg = this.add.rectangle(cx, cy, 260, 70, 0x000000, 0.75)
+      .setScrollFactor(0).setDepth(300);
+
+    const text = this.add.text(cx, cy, `B${this._floor}F`, {
+      fontFamily: 'monospace',
+      fontSize: '40px',
+      color: '#aaffaa',
+      stroke: '#004400',
+      strokeThickness: 5,
+    }).setScrollFactor(0).setOrigin(0.5).setDepth(301);
+
+    const sub = this.add.text(cx, cy + 28, `${this._floor}階層目`, {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      color: '#66aa66',
+    }).setScrollFactor(0).setOrigin(0.5).setDepth(301);
+
+    // 1秒表示してからフェードアウト
+    this.time.delayedCall(900, () => {
+      this.tweens.add({
+        targets: [bg, text, sub],
+        alpha: 0,
+        duration: 400,
+        onComplete: () => { bg.destroy(); text.destroy(); sub.destroy(); },
+      });
+    });
+  }
+
   _nextFloor() {
     this._floor++;
 
