@@ -469,19 +469,16 @@ export class GameScene extends Phaser.Scene {
   // ──────────────────────────────────────────────────────────
 
   _startFloorTransition() {
-    // カメラをフェードアウト → 真っ黒の間に再生成 → フェードイン
     this.cameras.main.fadeOut(300, 0, 0, 0);
 
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this._nextFloor();
 
-      // フェードイン
       this.cameras.main.fadeIn(400, 0, 0, 0);
 
-      // 階層バナーを表示
-      this._showFloorBanner();
-
       this.cameras.main.once('camerafadeincomplete', () => {
+        // フェードイン完了後にバナーを表示
+        this._showFloorBanner();
         this._turnLocked = false;
       });
     });
