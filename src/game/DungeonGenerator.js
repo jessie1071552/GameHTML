@@ -89,16 +89,39 @@ export class DungeonGenerator {
   }
 
   _carveCorridor(map, a, b) {
-    // 水平 → 垂直 (L字)
-    const hDir = a.x < b.x ? 1 : -1;
-    for (let x = a.x; x !== b.x; x += hDir) {
-      if (x > 0 && x < this.width - 1) map[a.y][x] = TILE.FLOOR;
+    // 折れ曲がり点にランダムオフセットを加えて通路を長くする
+    const offsetX = this._rand(-6, 6);
+    const offsetY = this._rand(-6, 6);
+
+    // 中継点（曲がり角）をランダムにずらす
+    const mid = {
+      x: Math.min(this.width  - 2, Math.max(1, Math.floor((a.x + b.x) / 2) + offsetX)),
+      y: Math.min(this.height - 2, Math.max(1, Math.floor((a.y + b.y) / 2) + offsetY)),
+    };
+
+    // a → mid（水平）→ mid（垂直）→ b の Z字型で掘る
+    this._carveH(map, a.y,   a.x,   mid.x);
+    this._carveV(map, mid.x, a.y,   mid.y);
+    this._carveH(map, mid.y, mid.x, b.x);
+    this._carveV(map, b.x,   mid.y, b.y);
+  }
+
+  _carveH(map, y, x1, x2) {
+    const dir = x1 <= x2 ? 1 : -1;
+    for (let x = x1; x !== x2 + dir; x += dir) {
+      if (x > 0 && x < this.width - 1 && y > 0 && y < this.height - 1) {
+        map[y][x] = TILE.FLOOR;
+      }
     }
-    const vDir = a.y < b.y ? 1 : -1;
-    for (let y = a.y; y !== b.y; y += vDir) {
-      if (y > 0 && y < this.height - 1) map[y][b.x] = TILE.FLOOR;
+  }
+
+  _carveV(map, x, y1, y2) {
+    const dir = y1 <= y2 ? 1 : -1;
+    for (let y = y1; y !== y2 + dir; y += dir) {
+      if (x > 0 && x < this.width - 1 && y > 0 && y < this.height - 1) {
+        map[y][x] = TILE.FLOOR;
+      }
     }
-    map[b.y][b.x] = TILE.FLOOR;
   }
 
   // ── 階段配置 ──────────────────────────────────────────────
