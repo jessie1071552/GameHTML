@@ -1,6 +1,6 @@
 /**
  * UIScene - ゲームUIオーバーレイ（GameSceneと並列動作）
- * GameSceneのカメラズームと完全に独立して動作する
+ * 固定解像度 1280x720 前提
  */
 export class UIScene extends Phaser.Scene {
   constructor() {
@@ -8,49 +8,26 @@ export class UIScene extends Phaser.Scene {
   }
 
   create() {
-    this._buildStatusPanel();
-    this._buildLogPanel();
-    this._buildHintBar();
+    const W = 1280;
+    const H = 720;
 
-    // リサイズ対応
-    this.scale.on('resize', this._onResize, this);
+    // ── 左上ステータスパネル ────────────────────────────────
+    // パネル背景
+    const panelBg = this.add.graphics();
+    panelBg.fillStyle(0x0a0a14, 0.88);
+    panelBg.fillRect(0, 0, 200, 96);
+    panelBg.lineStyle(1, 0x336633, 0.9);
+    panelBg.strokeRect(0, 0, 200, 96);
 
-    // GameSceneからのイベント受信
-    this.game.events.on('ui-update-hp',    this._onHpUpdate,    this);
-    this.game.events.on('ui-update-floor', this._onFloorUpdate, this);
-    this.game.events.on('ui-update-coord', this._onCoordUpdate, this);
-    this.game.events.on('ui-log',          this._onLog,         this);
-  }
-
-  shutdown() {
-    this.scale.off('resize', this._onResize, this);
-    this.game.events.off('ui-update-hp',    this._onHpUpdate,    this);
-    this.game.events.off('ui-update-floor', this._onFloorUpdate, this);
-    this.game.events.off('ui-update-coord', this._onCoordUpdate, this);
-    this.game.events.off('ui-log',          this._onLog,         this);
-  }
-
-  // ── ステータスパネル（左上）────────────────────────────────
-  _buildStatusPanel() {
-    const PW = 190, PH = 92;
-
-    this._statusBg = this.add.graphics();
-    this._statusBg.fillStyle(0x0a0a14, 0.82);
-    this._statusBg.fillRoundedRect(0, 0, PW, PH, 0);
-    this._statusBg.lineStyle(1, 0x336633, 0.8);
-    this._statusBg.strokeRoundedRect(0, 0, PW, PH, 0);
-
-    // フロア表示
+    // フロア
     this._floorText = this.add.text(12, 8, 'B1F', {
       fontFamily: 'monospace',
       fontSize: '18px',
       color: '#ffff88',
-      stroke: '#443300',
-      strokeThickness: 2,
     });
 
     // 座標
-    this._coordText = this.add.text(80, 12, '(0, 0)', {
+    this._coordText = this.add.text(75, 13, '(0, 0)', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#668866',
@@ -64,12 +41,12 @@ export class UIScene extends Phaser.Scene {
     });
 
     // HPバー背景
-    this._hpBarBg = this.add.graphics();
-    this._hpBarBg.fillStyle(0x222233);
-    this._hpBarBg.fillRect(32, 37, 148, 12);
+    const hpBg = this.add.graphics();
+    hpBg.fillStyle(0x222233);
+    hpBg.fillRect(32, 37, 152, 12);
 
-    // HPバー前景（rectangleで幅を動的変更）
-    this._hpBarFg = this.add.rectangle(32, 37, 148, 12, 0x44dd44).setOrigin(0, 0);
+    // HPバー前景
+    this._hpBarFg = this.add.rectangle(32, 37, 152, 12, 0x44dd44).setOrigin(0, 0);
 
     // HP数値
     this._hpValText = this.add.text(12, 53, 'HP 60 / 60', {
@@ -78,96 +55,71 @@ export class UIScene extends Phaser.Scene {
       color: '#aaffaa',
     });
 
-    // キャラ名（仮）
-    this.add.text(12, 72, '冒険者', {
+    // キャラ名
+    this.add.text(12, 72, '冒険者 Lv.1', {
       fontFamily: 'monospace',
       fontSize: '11px',
       color: '#778877',
     });
-  }
 
-  // ── ログパネル（下部）──────────────────────────────────────
-  _buildLogPanel() {
-    this._logMessages = [];
-    this._logContainer = this.add.container(0, 0);
-    this._rebuildLogPanel();
-  }
+    // ── 下部ログパネル ─────────────────────────────────────
+    const LOG_Y = H - 82;
+    const LOG_H = 82;
 
-  _rebuildLogPanel() {
-    this._logContainer.removeAll(true);
-
-    const W   = this.scale.width;
-    const H   = this.scale.height;
-    const LH  = 78;   // ログパネル高さ
-    const LY  = H - LH;
-
-    // 背景
-    const bg = this.add.graphics();
-    bg.fillStyle(0x0a0a14, 0.82);
-    bg.fillRect(0, LY, W, LH);
-    bg.lineStyle(1, 0x336633, 0.6);
-    bg.lineBetween(0, LY, W, LY);
-    this._logContainer.add(bg);
+    const logBg = this.add.graphics();
+    logBg.fillStyle(0x0a0a14, 0.88);
+    logBg.fillRect(0, LOG_Y, W, LOG_H);
+    logBg.lineStyle(1, 0x336633, 0.7);
+    logBg.lineBetween(0, LOG_Y, W, LOG_Y);
 
     // ログラベル
-    const label = this.add.text(10, LY + 4, '[ ログ ]', {
+    this.add.text(10, LOG_Y + 4, '▼ ログ', {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#446644',
     });
-    this._logContainer.add(label);
 
     // ログ行（4行）
     this._logLines = [];
+    this._logMessages = [];
     for (let i = 0; i < 4; i++) {
-      const t = this.add.text(10, LY + 16 + i * 15, '', {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: i === 0 ? '#eeffee' : i === 1 ? '#aaccaa' : '#778877',
-      });
-      this._logLines.push(t);
-      this._logContainer.add(t);
+      this._logLines.push(
+        this.add.text(10, LOG_Y + 16 + i * 16, '', {
+          fontFamily: 'monospace',
+          fontSize: '12px',
+          color: i === 0 ? '#eeffee' : i === 1 ? '#aaccaa' : '#778877',
+        })
+      );
     }
 
-    this._refreshLogLines();
-  }
-
-  // ── ヒントバー（右下）──────────────────────────────────────
-  _buildHintBar() {
-    this._hintContainer = this.add.container(0, 0);
-    this._rebuildHintBar();
-  }
-
-  _rebuildHintBar() {
-    this._hintContainer.removeAll(true);
-    const W = this.scale.width;
-    const H = this.scale.height;
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.5);
-    bg.fillRect(W - 350, H - 80, 350, 16);
-    this._hintContainer.add(bg);
-
-    const t = this.add.text(W - 346, H - 79,
+    // ── ヒントバー（右下） ─────────────────────────────────
+    const hintBg = this.add.graphics();
+    hintBg.fillStyle(0x000000, 0.55);
+    hintBg.fillRect(W - 420, H - 82, 420, 18);
+    this.add.text(W - 416, H - 80,
       '矢印/WASD: 移動・攻撃  Q/E/Z/C: 斜め  R: 次フロア', {
       fontFamily: 'monospace',
-      fontSize: '10px',
+      fontSize: '11px',
       color: '#446644',
     });
-    this._hintContainer.add(t);
+
+    // ── イベント受信 ────────────────────────────────────────
+    this.game.events.on('ui-update-hp',    this._onHpUpdate,    this);
+    this.game.events.on('ui-update-floor', this._onFloorUpdate, this);
+    this.game.events.on('ui-update-coord', this._onCoordUpdate, this);
+    this.game.events.on('ui-log',          this._onLog,         this);
   }
 
-  // ── リサイズ ───────────────────────────────────────────────
-  _onResize() {
-    this._rebuildLogPanel();
-    this._rebuildHintBar();
+  shutdown() {
+    this.game.events.off('ui-update-hp',    this._onHpUpdate,    this);
+    this.game.events.off('ui-update-floor', this._onFloorUpdate, this);
+    this.game.events.off('ui-update-coord', this._onCoordUpdate, this);
+    this.game.events.off('ui-log',          this._onLog,         this);
   }
 
-  // ── イベントハンドラ ────────────────────────────────────────
   _onHpUpdate({ hp, maxHp }) {
     const rat = Math.max(0, hp / maxHp);
-    const w   = Math.max(1, Math.floor(148 * rat));
-    this._hpBarFg.setSize(w, 12);
+    this._hpBarFg.setSize(Math.max(1, Math.floor(152 * rat)), 12);
     const col = rat > 0.5 ? 0x44dd44 : rat > 0.25 ? 0xdddd44 : 0xdd4444;
     this._hpBarFg.setFillStyle(col);
     this._hpValText.setText(`HP ${hp} / ${maxHp}`);
@@ -184,11 +136,6 @@ export class UIScene extends Phaser.Scene {
   _onLog({ msg }) {
     this._logMessages.unshift(msg);
     if (this._logMessages.length > 4) this._logMessages.length = 4;
-    this._refreshLogLines();
-  }
-
-  _refreshLogLines() {
-    if (!this._logLines) return;
     this._logLines.forEach((t, i) => {
       t.setText(this._logMessages[i] ?? '');
       t.setColor(i === 0 ? '#eeffee' : i === 1 ? '#aaccaa' : '#778877');

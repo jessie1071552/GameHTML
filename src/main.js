@@ -6,13 +6,14 @@ import { UIScene }    from './scenes/UIScene.js';
 const config = {
   type: Phaser.AUTO,
 
+  width:  1280,
+  height: 720,
+
   backgroundColor: '#0d0d1a',
 
   scale: {
-    mode: Phaser.Scale.RESIZE,   // ウィンドウサイズに完全追従
+    mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width:  '100%',
-    height: '100%',
   },
 
   scene: [BootScene, TitleScene, GameScene, UIScene],
@@ -21,8 +22,6 @@ const config = {
     antialias: false,
     pixelArt: true,
   },
-
-  parent: 'game-container',
 };
 
 window.game = new Phaser.Game(config);

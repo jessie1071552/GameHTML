@@ -502,7 +502,6 @@ export class GameScene extends Phaser.Scene {
       .setBounds(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE)
       .startFollow(this._playerSprite, true, CAMERA_LERP, CAMERA_LERP)
       .setZoom(ZOOM);
-
     this._updateFog();
     this._emitAll();
     this._log(`--- B${this._floor}Fに降りた ---`);
