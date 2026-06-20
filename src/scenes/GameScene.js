@@ -331,7 +331,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         this._log(`${target.characterId}に${dmg}ダメージ！`);
       }
-    } else if (this._isWalkable(nx, ny)) {
+    } else if (this._isWalkable(nx, ny) && !this._isAllyAt(nx, ny)) {
       this._playerData.position.x = nx;
       this._playerData.position.y = ny;
       const { px: wpx, py: wpy } = this._tileToWorld(nx, ny);
@@ -412,7 +412,7 @@ export class GameScene extends Phaser.Scene {
         pp,
         this._enemies,
         (x, y) => this._isWalkable(x, y),
-        (x, y) => this._isAnyOccupied(x, y, ally.instanceId),
+        (x, y) => (x === pp.x && y === pp.y) || this._isAnyOccupied(x, y, ally.instanceId),
       );
 
       if (!action) continue;
@@ -651,11 +651,16 @@ export class GameScene extends Phaser.Scene {
     const { px, py } = this._tileToWorld(x, y);
     this._playerSprite.setPosition(px, py);
 
-    // 仲間はプレイヤーの近くに再配置（HP・レベルは維持）
+    // 仲間はプレイヤーの近くに再配置（HP・レベルは維持、プレイヤーとは重ならない）
     this._allies.forEach((ally, i) => {
-      const ax = Math.min(MAP_WIDTH - 1, x + (i + 1));
-      const ay = y;
-      ally.position = { x: this._isWalkable(ax, ay) ? ax : x, y: ay };
+      const candidates = [
+        { x: x + (i + 1), y },
+        { x: x - (i + 1), y },
+        { x, y: y + (i + 1) },
+        { x, y: y - (i + 1) },
+      ];
+      const spot = candidates.find(c => this._isWalkable(c.x, c.y)) ?? { x, y };
+      ally.position = { ...spot };
       this._createAllySprite(ally);
     });
 
