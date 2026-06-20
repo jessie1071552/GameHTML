@@ -54,54 +54,38 @@ export class Ally {
   decideAction(playerPos, enemies, isWalkable, isOccupied) {
     const aliveEnemies = enemies.filter(e => !e.isDead);
 
+    // ── どのコマンドでも、隣接する敵対モブには最優先で攻撃する ──
+    const adjacent = this._findAdjacentEnemy(aliveEnemies);
+    if (adjacent) return { type: 'attack', target: adjacent };
+
+    // ── 隣接していない場合はコマンドごとの移動方針に従う ───────
     switch (this.command) {
       case 'wait':
-        return this._waitBehavior(aliveEnemies);
+        return null; // その場に留まる
       case 'attack':
         return this._attackBehavior(aliveEnemies, isWalkable, isOccupied);
       case 'follow':
       default:
-        return this._followBehavior(playerPos, aliveEnemies, isWalkable, isOccupied);
+        return this._followBehavior(playerPos, isWalkable, isOccupied);
     }
   }
 
-  // ── wait: その場から動かない。隣接した敵には反撃する ─────────
-  _waitBehavior(enemies) {
-    const adjacent = this._findAdjacentEnemy(enemies);
-    if (adjacent) return { type: 'attack', target: adjacent };
-    return null; // 動かない
-  }
-
-  // ── attack: 最も近い敵に向かって自律的に攻撃しに行く ──────────
+  // ── attack: 最も近い敵に向かって自律的に近づいていく ──────────
   _attackBehavior(enemies, isWalkable, isOccupied) {
     if (enemies.length === 0) return null;
-
-    // 隣接していればまず攻撃
-    const adjacent = this._findAdjacentEnemy(enemies);
-    if (adjacent) return { type: 'attack', target: adjacent };
-
-    // 最も近い敵を探す
     const nearest = this._findNearestEnemy(enemies);
     if (!nearest) return null;
-
     const move = this._stepToward(nearest.position.x, nearest.position.y, isWalkable, isOccupied);
     return move ? { type: 'move', x: move.x, y: move.y } : null;
   }
 
-  // ── follow: プレイヤーの後ろをついていく。近くの敵は自動攻撃 ──
-  _followBehavior(playerPos, enemies, isWalkable, isOccupied) {
-    // 隣接する敵がいれば優先して攻撃
-    const adjacent = this._findAdjacentEnemy(enemies);
-    if (adjacent) return { type: 'attack', target: adjacent };
-
-    // プレイヤーから1マス以内にいれば動かない
+  // ── follow: プレイヤーの後ろをついていく ──────────────────────
+  _followBehavior(playerPos, isWalkable, isOccupied) {
     const dist = Math.max(
       Math.abs(this.position.x - playerPos.x),
       Math.abs(this.position.y - playerPos.y)
     );
     if (dist <= 1) return null;
-
-    // プレイヤーに向かって1歩進む
     const move = this._stepToward(playerPos.x, playerPos.y, isWalkable, isOccupied);
     return move ? { type: 'move', x: move.x, y: move.y } : null;
   }
