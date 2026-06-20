@@ -1,11 +1,13 @@
 import { DungeonGenerator } from '../game/DungeonGenerator.js';
 import { Enemy }            from '../game/Enemy.js';
+import { Ally }             from '../game/Ally.js';
 import { BattleSystem }     from '../game/BattleSystem.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, TILE, CAMERA_LERP } from '../utils/constants.js';
 
 const ENEMY_COUNT = 8;
 const ENEMY_TYPES = ['slime', 'goblin', 'orc'];
 const ZOOM = 2.0;
+const MAX_ALLIES = 2;
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -18,14 +20,20 @@ export class GameScene extends Phaser.Scene {
 
     this._playerData   = null;
     this._playerSprite = null;
+
     this._enemies      = [];
     this._enemySprites = new Map();
     this._hpTexts      = new Map();
+
+    this._allies        = [];
+    this._allySprites    = new Map();
+    this._allyHpTexts    = new Map();
+
     this._turnLocked   = false;
+    this._pendingRecruit = null; // 確認ダイアログ表示中の対象
   }
 
   create() {
-    // UIシーンを並列起動
     this.scene.launch('UIScene');
 
     this._generateDungeon();
@@ -90,23 +98,25 @@ export class GameScene extends Phaser.Scene {
         if (!tile) continue;
 
         if (visible[y][x]) {
-          // 視界内：通常表示
           tile.setAlpha(1).setTint(0xffffff);
         } else if (this._visited[y][x]) {
-          // 踏破済み・視界外：薄暗く表示（壁の存在は分かる）
           tile.setAlpha(1).setTint(0x445566);
         } else {
-          // 未踏破：完全に隠す
           tile.setAlpha(0);
         }
       }
     }
 
-    // 敵・HPテキストの表示切り替え（視界内のみ）
     this._enemies.forEach(e => {
       const show = visible[e.position.y]?.[e.position.x] ?? false;
       this._enemySprites.get(e.instanceId)?.setVisible(show);
       this._hpTexts.get(e.instanceId)?.setVisible(show);
+    });
+
+    this._allies.forEach(a => {
+      const show = visible[a.position.y]?.[a.position.x] ?? false;
+      this._allySprites.get(a.instanceId)?.setVisible(show);
+      this._allyHpTexts.get(a.instanceId)?.setVisible(show);
     });
   }
 
@@ -118,13 +128,11 @@ export class GameScene extends Phaser.Scene {
     const room = this._rooms.find(r => this._inRoom(r, pp.x, pp.y));
 
     if (room) {
-      // 部屋全体 + 外周1マス
       for (let y = room.y - 1; y <= room.y + room.h; y++)
         for (let x = room.x - 1; x <= room.x + room.w; x++)
           if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT)
             vis[y][x] = true;
     } else {
-      // 廊下: 周囲4マス
       for (let dy = -4; dy <= 4; dy++)
         for (let dx = -4; dx <= 4; dx++) {
           const nx = pp.x + dx, ny = pp.y + dy;
@@ -172,7 +180,7 @@ export class GameScene extends Phaser.Scene {
       const rx = Math.floor(Math.random() * MAP_WIDTH);
       const ry = Math.floor(Math.random() * MAP_HEIGHT);
       if (this._map[ry][rx] === TILE.WALL)          continue;
-      if (this._isEnemyAt(rx, ry))                  continue;
+      if (this._isAnyOccupied(rx, ry))               continue;
       if (pRoom && this._inRoom(pRoom, rx, ry))      continue;
       if (rx === pp.x && ry === pp.y)                continue;
 
@@ -199,6 +207,22 @@ export class GameScene extends Phaser.Scene {
 
       placed++;
     }
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  仲間スプライト生成（フロア間で引き継ぐ際にも使用）
+  // ──────────────────────────────────────────────────────────
+  _createAllySprite(ally) {
+    const { px, py } = this._tileToWorld(ally.position.x, ally.position.y);
+    const sprite = this.add.image(px, py, `enemy_${ally.characterId}`)
+      .setDepth(9).setTint(0x88ddff); // 仲間は青みがかった色で区別
+    this._allySprites.set(ally.instanceId, sprite);
+
+    const hpText = this.add.text(px, py - 18, `${ally.hp}/${ally.maxHp}`, {
+      fontFamily: 'monospace', fontSize: '10px',
+      color: '#88ddff', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(50);
+    this._allyHpTexts.set(ally.instanceId, hpText);
   }
 
   // ──────────────────────────────────────────────────────────
@@ -229,20 +253,42 @@ export class GameScene extends Phaser.Scene {
       z: Phaser.Input.Keyboard.KeyCodes.Z,
       c: Phaser.Input.Keyboard.KeyCodes.C,
       r: Phaser.Input.Keyboard.KeyCodes.R,
+      one:   Phaser.Input.Keyboard.KeyCodes.ONE,   // 仲間コマンド: follow
+      two:   Phaser.Input.Keyboard.KeyCodes.TWO,   // 仲間コマンド: wait
+      three: Phaser.Input.Keyboard.KeyCodes.THREE, // 仲間コマンド: attack
+      y: Phaser.Input.Keyboard.KeyCodes.Y,         // 確認ダイアログ: YES
+      n: Phaser.Input.Keyboard.KeyCodes.N,         // 確認ダイアログ: NO
     });
 
     ['up','down','left','right','w','a','s','d','q','e','z','c'].forEach(k =>
       this._keys[k].on('down', () => this._onDirectionKey())
     );
     this._keys.r.on('down', () => {
-      if (this._turnLocked) return;
+      if (this._turnLocked || this._pendingRecruit) return;
       this._turnLocked = true;
       this._startFloorTransition();
     });
+
+    // 仲間コマンド切り替え（1=follow, 2=wait, 3=attack）
+    this._keys.one.on('down',   () => this._setAllyCommand('follow'));
+    this._keys.two.on('down',   () => this._setAllyCommand('wait'));
+    this._keys.three.on('down', () => this._setAllyCommand('attack'));
+
+    // 仲間化確認ダイアログ
+    this._keys.y.on('down', () => this._resolveRecruit(true));
+    this._keys.n.on('down', () => this._resolveRecruit(false));
+  }
+
+  _setAllyCommand(cmd) {
+    if (this._allies.length === 0) return;
+    this._allies.forEach(a => { a.command = cmd; });
+    const label = cmd === 'follow' ? '追従' : cmd === 'wait' ? '待機' : '攻撃';
+    this._log(`仲間に「${label}」を指示した`);
+    this.game.events.emit('ui-ally-command', { command: cmd });
   }
 
   _onDirectionKey() {
-    if (this._turnLocked) return;
+    if (this._turnLocked || this._pendingRecruit) return;
     const dx = this._getDX(), dy = this._getDY();
     if (dx === 0 && dy === 0) return;
     this._doPlayerTurn(dx, dy);
@@ -263,7 +309,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ──────────────────────────────────────────────────────────
-  //  ターン処理
+  //  ターン処理（プレイヤー → 仲間 → 敵）
   // ──────────────────────────────────────────────────────────
   _doPlayerTurn(dx, dy) {
     this._turnLocked = true;
@@ -279,6 +325,9 @@ export class GameScene extends Phaser.Scene {
       if (target.isDead) {
         this._log(`${target.characterId}を倒した！(+${target.expDrop}exp)`);
         this._removeEnemy(target);
+        this._maybeOfferRecruit(target);
+        // 仲間化確認待ちの場合はここでターンを止める（YES/NO待ち）
+        if (this._pendingRecruit) return;
       } else {
         this._log(`${target.characterId}に${dmg}ダメージ！`);
       }
@@ -300,14 +349,94 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this._continueTurnAfterPlayer();
+  }
+
+  /** プレイヤー行動後、仲間→敵の順でターンを進める（確認ダイアログがなければ即時） */
+  _continueTurnAfterPlayer() {
     this.time.delayedCall(120, () => {
-      this._doEnemyTurns();
-      this.game.events.emit('ui-update-hp', {
-        hp: this._playerData.hp, maxHp: this._playerData.maxHp,
+      this._doAllyTurns();
+      this.time.delayedCall(100, () => {
+        this._doEnemyTurns();
+        this.game.events.emit('ui-update-hp', {
+          hp: this._playerData.hp, maxHp: this._playerData.maxHp,
+        });
+        this._updateFog();
+        this._turnLocked = false;
       });
-      this._updateFog();
-      this._turnLocked = false;
     });
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  仲間化フロー
+  // ──────────────────────────────────────────────────────────
+  _maybeOfferRecruit(defeatedEnemy) {
+    if (this._allies.length >= MAX_ALLIES) return; // 上限なら確認なし
+
+    this._pendingRecruit = defeatedEnemy;
+    this.game.events.emit('ui-recruit-prompt', {
+      characterId: defeatedEnemy.characterId,
+      level: defeatedEnemy.level,
+    });
+  }
+
+  _resolveRecruit(accepted) {
+    if (!this._pendingRecruit) return;
+    const enemy = this._pendingRecruit;
+    this._pendingRecruit = null;
+    this.game.events.emit('ui-recruit-close');
+
+    if (accepted) {
+      const ally = Ally.fromEnemy(enemy);
+      this._allies.push(ally);
+      this._createAllySprite(ally);
+      this._log(`${ally.characterId}が仲間になった！`);
+      this._updateFog();
+    } else {
+      this._log(`${enemy.characterId}を仲間にしなかった`);
+    }
+
+    this._continueTurnAfterPlayer();
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  仲間AIターン
+  // ──────────────────────────────────────────────────────────
+  _doAllyTurns() {
+    const pp = this._playerData.position;
+
+    for (const ally of this._allies) {
+      if (ally.isDead) continue;
+
+      const action = ally.decideAction(
+        pp,
+        this._enemies,
+        (x, y) => this._isWalkable(x, y),
+        (x, y) => this._isAnyOccupied(x, y, ally.instanceId),
+      );
+
+      if (!action) continue;
+
+      if (action.type === 'attack') {
+        const dmg = BattleSystem.applyAttack(ally, action.target);
+        this._showDamageText(action.target.position.x, action.target.position.y, dmg, '#88ddff');
+        this._hpTexts.get(action.target.instanceId)?.setText(`${action.target.hp}/${action.target.maxHp}`);
+        if (action.target.isDead) {
+          this._log(`仲間が${action.target.characterId}を倒した！`);
+          this._removeEnemy(action.target);
+        } else {
+          this._log(`仲間が${action.target.characterId}に${dmg}ダメージ！`);
+        }
+      } else if (action.type === 'move') {
+        ally.position.x = action.x;
+        ally.position.y = action.y;
+        const { px, py } = this._tileToWorld(action.x, action.y);
+        const sprite = this._allySprites.get(ally.instanceId);
+        const hpText = this._allyHpTexts.get(ally.instanceId);
+        if (sprite) this.tweens.add({ targets: sprite, x: px, y: py, duration: 100 });
+        if (hpText) this.tweens.add({ targets: hpText, x: px, y: py - 18, duration: 100 });
+      }
+    }
   }
 
   // ──────────────────────────────────────────────────────────
@@ -317,11 +446,27 @@ export class GameScene extends Phaser.Scene {
     const pp = this._playerData.position;
     for (const enemy of this._enemies) {
       if (enemy.isDead) continue;
+
+      // 仲間が隣接していれば仲間を優先攻撃、いなければプレイヤーを狙う
+      const adjacentAlly = this._allies.find(a => !a.isDead && BattleSystem.isAdjacent(enemy, a));
+
+      if (adjacentAlly) {
+        const dmg = BattleSystem.applyAttack(enemy, adjacentAlly);
+        this._showDamageText(adjacentAlly.position.x, adjacentAlly.position.y, dmg, '#ff4444');
+        this._allyHpTexts.get(adjacentAlly.instanceId)?.setText(`${adjacentAlly.hp}/${adjacentAlly.maxHp}`);
+        this._log(`${enemy.characterId}が仲間に${dmg}ダメージ！`);
+        if (adjacentAlly.isDead) {
+          this._log(`仲間が倒れた…`);
+          this._removeAlly(adjacentAlly);
+        }
+        continue;
+      }
+
       const action = enemy.decideAction(
         pp,
         (x, y) => this._isWalkable(x, y),
         (ex, ey) => this._isPlayerInSameRoom(ex, ey),
-        (x, y) => (x === pp.x && y === pp.y) || this._isEnemyAt(x, y, enemy.instanceId),
+        (x, y) => (x === pp.x && y === pp.y) || this._isAnyOccupied(x, y, enemy.instanceId),
       );
       if (action === null) {
         const dmg = BattleSystem.applyAttack(enemy, this._playerData);
@@ -355,6 +500,18 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  _isAllyAt(x, y, excludeId = null) {
+    return this._allies.some(a =>
+      !a.isDead && a.instanceId !== excludeId &&
+      a.position.x === x && a.position.y === y
+    );
+  }
+
+  /** 敵・仲間どちらも考慮した占有チェック（敵同士・仲間同士・敵と仲間が重ならないようにする） */
+  _isAnyOccupied(x, y, excludeId = null) {
+    return this._isEnemyAt(x, y, excludeId) || this._isAllyAt(x, y, excludeId);
+  }
+
   _isPlayerInSameRoom(ex, ey) {
     const pp = this._playerData.position;
     return this._rooms.some(r => this._inRoom(r, ex, ey) && this._inRoom(r, pp.x, pp.y));
@@ -369,7 +526,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ──────────────────────────────────────────────────────────
-  //  敵の除去
+  //  敵・仲間の除去
   // ──────────────────────────────────────────────────────────
   _removeEnemy(enemy) {
     const sprite = this._enemySprites.get(enemy.instanceId);
@@ -383,6 +540,20 @@ export class GameScene extends Phaser.Scene {
     if (hpText) { hpText.destroy(); this._hpTexts.delete(enemy.instanceId); }
     this._enemySprites.delete(enemy.instanceId);
     this._enemies = this._enemies.filter(e => e.instanceId !== enemy.instanceId);
+  }
+
+  _removeAlly(ally) {
+    const sprite = this._allySprites.get(ally.instanceId);
+    const hpText = this._allyHpTexts.get(ally.instanceId);
+    if (sprite) {
+      this.tweens.add({
+        targets: sprite, alpha: 0, y: sprite.y - 10, duration: 300,
+        onComplete: () => sprite.destroy(),
+      });
+    }
+    if (hpText) { hpText.destroy(); this._allyHpTexts.delete(ally.instanceId); }
+    this._allySprites.delete(ally.instanceId);
+    this._allies = this._allies.filter(a => a.instanceId !== ally.instanceId);
   }
 
   // ──────────────────────────────────────────────────────────
@@ -466,6 +637,12 @@ export class GameScene extends Phaser.Scene {
     this._hpTexts.clear();
     this._enemies = [];
 
+    // 仲間スプライトも一旦破棄（位置を引き継いで再生成する）
+    this._allySprites.forEach(s => s.destroy());
+    this._allySprites.clear();
+    this._allyHpTexts.forEach(t => t.destroy());
+    this._allyHpTexts.clear();
+
     this._generateDungeon();
     this._drawTiles();
 
@@ -473,6 +650,14 @@ export class GameScene extends Phaser.Scene {
     this._playerData.position = { x, y };
     const { px, py } = this._tileToWorld(x, y);
     this._playerSprite.setPosition(px, py);
+
+    // 仲間はプレイヤーの近くに再配置（HP・レベルは維持）
+    this._allies.forEach((ally, i) => {
+      const ax = Math.min(MAP_WIDTH - 1, x + (i + 1));
+      const ay = y;
+      ally.position = { x: this._isWalkable(ax, ay) ? ax : x, y: ay };
+      this._createAllySprite(ally);
+    });
 
     this._spawnEnemies();
     this.cameras.main

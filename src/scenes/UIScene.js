@@ -95,26 +95,74 @@ export class UIScene extends Phaser.Scene {
     // ── ヒントバー（右下） ─────────────────────────────────
     const hintBg = this.add.graphics();
     hintBg.fillStyle(0x000000, 0.55);
-    hintBg.fillRect(W - 420, H - 82, 420, 18);
-    this.add.text(W - 416, H - 80,
-      '矢印/WASD: 移動・攻撃  Q/E/Z/C: 斜め  R: 次フロア', {
+    hintBg.fillRect(W - 480, H - 82, 480, 18);
+    this.add.text(W - 476, H - 80,
+      '矢印/WASD: 移動・攻撃  Q/E/Z/C: 斜め  R: 次フロア  1/2/3: 仲間指示', {
       fontFamily: 'monospace',
       fontSize: '11px',
       color: '#446644',
     });
 
+    // ── 仲間コマンドパネル（左上パネルの下） ───────────────────
+    const cmdBg = this.add.graphics();
+    cmdBg.fillStyle(0x0a0a14, 0.88);
+    cmdBg.fillRect(0, 100, 200, 40);
+    cmdBg.lineStyle(1, 0x336666, 0.8);
+    cmdBg.strokeRect(0, 100, 200, 40);
+
+    this.add.text(8, 104, '仲間指示', {
+      fontFamily: 'monospace', fontSize: '10px', color: '#88ccdd',
+    });
+    this._cmdText = this.add.text(8, 118, '[1]追従 [2]待機 [3]攻撃', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#88ddff',
+    });
+    this._cmdActiveText = this.add.text(8, 132, '現在: follow', {
+      fontFamily: 'monospace', fontSize: '10px', color: '#557766',
+    });
+
+    // ── 仲間化確認ダイアログ（中央・初期は非表示） ─────────────
+    this._recruitContainer = this.add.container(W / 2, H / 2).setVisible(false).setDepth(600);
+
+    const dlgBg = this.add.graphics();
+    dlgBg.fillStyle(0x0a0a14, 0.95);
+    dlgBg.fillRect(-180, -70, 360, 140);
+    dlgBg.lineStyle(2, 0x88ddff, 1);
+    dlgBg.strokeRect(-180, -70, 360, 140);
+    this._recruitContainer.add(dlgBg);
+
+    this._recruitTitleText = this.add.text(0, -42, '', {
+      fontFamily: 'monospace', fontSize: '16px', color: '#ffffff',
+    }).setOrigin(0.5);
+    this._recruitContainer.add(this._recruitTitleText);
+
+    const promptText = this.add.text(0, -8, '仲間にしますか？', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#cceecc',
+    }).setOrigin(0.5);
+    this._recruitContainer.add(promptText);
+
+    const hintText = this.add.text(0, 36, '[Y] はい　　[N] いいえ', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#ffff88',
+    }).setOrigin(0.5);
+    this._recruitContainer.add(hintText);
+
     // ── イベント受信 ────────────────────────────────────────
-    this.game.events.on('ui-update-hp',    this._onHpUpdate,    this);
-    this.game.events.on('ui-update-floor', this._onFloorUpdate, this);
-    this.game.events.on('ui-update-coord', this._onCoordUpdate, this);
-    this.game.events.on('ui-log',          this._onLog,         this);
+    this.game.events.on('ui-update-hp',      this._onHpUpdate,      this);
+    this.game.events.on('ui-update-floor',   this._onFloorUpdate,   this);
+    this.game.events.on('ui-update-coord',   this._onCoordUpdate,   this);
+    this.game.events.on('ui-log',            this._onLog,           this);
+    this.game.events.on('ui-ally-command',   this._onAllyCommand,   this);
+    this.game.events.on('ui-recruit-prompt', this._onRecruitPrompt, this);
+    this.game.events.on('ui-recruit-close',  this._onRecruitClose,  this);
   }
 
   shutdown() {
-    this.game.events.off('ui-update-hp',    this._onHpUpdate,    this);
-    this.game.events.off('ui-update-floor', this._onFloorUpdate, this);
-    this.game.events.off('ui-update-coord', this._onCoordUpdate, this);
-    this.game.events.off('ui-log',          this._onLog,         this);
+    this.game.events.off('ui-update-hp',      this._onHpUpdate,      this);
+    this.game.events.off('ui-update-floor',   this._onFloorUpdate,   this);
+    this.game.events.off('ui-update-coord',   this._onCoordUpdate,   this);
+    this.game.events.off('ui-log',            this._onLog,           this);
+    this.game.events.off('ui-ally-command',   this._onAllyCommand,   this);
+    this.game.events.off('ui-recruit-prompt', this._onRecruitPrompt, this);
+    this.game.events.off('ui-recruit-close',  this._onRecruitClose,  this);
   }
 
   _onHpUpdate({ hp, maxHp }) {
@@ -140,5 +188,18 @@ export class UIScene extends Phaser.Scene {
       t.setText(this._logMessages[i] ?? '');
       t.setColor(i === 0 ? '#eeffee' : i === 1 ? '#aaccaa' : '#778877');
     });
+  }
+
+  _onAllyCommand({ command }) {
+    this._cmdActiveText.setText(`現在: ${command}`);
+  }
+
+  _onRecruitPrompt({ characterId, level }) {
+    this._recruitTitleText.setText(`${characterId.toUpperCase()} Lv.${level} を`);
+    this._recruitContainer.setVisible(true);
+  }
+
+  _onRecruitClose() {
+    this._recruitContainer.setVisible(false);
   }
 }
