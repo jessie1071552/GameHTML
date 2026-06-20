@@ -331,7 +331,20 @@ export class GameScene extends Phaser.Scene {
       } else {
         this._log(`${target.characterId}に${dmg}ダメージ！`);
       }
-    } else if (this._isWalkable(nx, ny) && !this._isAllyAt(nx, ny)) {
+    } else if (this._isWalkable(nx, ny)) {
+      const allyHere = this._allies.find(a => !a.isDead && a.position.x === nx && a.position.y === ny);
+
+      if (allyHere) {
+        // 仲間のマスに進もうとした場合は位置を入れ替える
+        const { px: apx, py: apy } = this._tileToWorld(px, py);
+        allyHere.position.x = px;
+        allyHere.position.y = py;
+        const allySprite = this._allySprites.get(allyHere.instanceId);
+        const allyHpText = this._allyHpTexts.get(allyHere.instanceId);
+        if (allySprite) this.tweens.add({ targets: allySprite, x: apx, y: apy, duration: 100 });
+        if (allyHpText) this.tweens.add({ targets: allyHpText, x: apx, y: apy - 18, duration: 100 });
+      }
+
       this._playerData.position.x = nx;
       this._playerData.position.y = ny;
       const { px: wpx, py: wpy } = this._tileToWorld(nx, ny);
