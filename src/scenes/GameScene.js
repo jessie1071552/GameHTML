@@ -15,7 +15,6 @@ export class GameScene extends Phaser.Scene {
     this._floor       = 1;
     this._tileSprites = [];
     this._visited     = null;
-    this._fogRT       = null;
 
     this._playerData   = null;
     this._playerSprite = null;
@@ -31,7 +30,6 @@ export class GameScene extends Phaser.Scene {
 
     this._generateDungeon();
     this._drawTiles();
-    this._initFog();
     this._spawnPlayer();
     this._spawnEnemies();
     this._setupCamera();
@@ -72,58 +70,39 @@ export class GameScene extends Phaser.Scene {
                   :                      'tile_wall';
         const px = x * TILE_SIZE + TILE_SIZE / 2;
         const py = y * TILE_SIZE + TILE_SIZE / 2;
-        row.push(this.add.image(px, py, key).setDepth(1));
+        row.push(this.add.image(px, py, key).setDepth(1).setAlpha(0));
       }
       this._tileSprites.push(row);
     }
   }
 
   // ──────────────────────────────────────────────────────────
-  //  霧 - RenderTexture 1枚でマップ全体を覆う
+  //  霧 - タイル本体の alpha / tint を直接制御
   // ──────────────────────────────────────────────────────────
-  _initFog() {
-    if (this._fogRT) { this._fogRT.destroy(); this._fogRT = null; }
-    const W = MAP_WIDTH  * TILE_SIZE;
-    const H = MAP_HEIGHT * TILE_SIZE;
-    // depth 40: タイル(1)・敵(9)・プレイヤー(10)の上、ダメージテキスト(50)の下
-    this._fogRT = this.add.renderTexture(0, 0, W, H)
-      .setOrigin(0, 0)
-      .setDepth(40);
-    this._fogRT.fill(0x000000, 1);
-  }
-
   _updateFog() {
     const visible = this._calcVisible();
 
-    for (let y = 0; y < MAP_HEIGHT; y++)
-      for (let x = 0; x < MAP_WIDTH; x++)
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+      for (let x = 0; x < MAP_WIDTH; x++) {
         if (visible[y][x]) this._visited[y][x] = true;
 
-    // ① 全面リセット（真っ黒）
-    this._fogRT.clear();
-    this._fogRT.fill(0x000000, 1);
+        const tile = this._tileSprites[y][x];
+        if (!tile) continue;
 
-    // ② 踏破済み・視界外 → 半透明黒を draw
-    const visitedGfx = this.make.graphics({ add: false });
-    visitedGfx.fillStyle(0x000000, 0.6);
-    for (let y = 0; y < MAP_HEIGHT; y++)
-      for (let x = 0; x < MAP_WIDTH; x++)
-        if (this._visited[y][x] && !visible[y][x])
-          visitedGfx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    this._fogRT.draw(visitedGfx, 0, 0);
-    visitedGfx.destroy();
+        if (visible[y][x]) {
+          // 視界内：通常表示
+          tile.setAlpha(1).setTint(0xffffff);
+        } else if (this._visited[y][x]) {
+          // 踏破済み・視界外：薄暗く表示（壁の存在は分かる）
+          tile.setAlpha(1).setTint(0x445566);
+        } else {
+          // 未踏破：完全に隠す
+          tile.setAlpha(0);
+        }
+      }
+    }
 
-    // ③ 視界内 → erase で穴を開ける（完全透明）
-    const visGfx = this.make.graphics({ add: false });
-    visGfx.fillStyle(0xffffff, 1);
-    for (let y = 0; y < MAP_HEIGHT; y++)
-      for (let x = 0; x < MAP_WIDTH; x++)
-        if (visible[y][x])
-          visGfx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    this._fogRT.erase(visGfx, 0, 0);
-    visGfx.destroy();
-
-    // 敵・HPテキストの表示切り替え
+    // 敵・HPテキストの表示切り替え（視界内のみ）
     this._enemies.forEach(e => {
       const show = visible[e.position.y]?.[e.position.x] ?? false;
       this._enemySprites.get(e.instanceId)?.setVisible(show);
@@ -145,7 +124,7 @@ export class GameScene extends Phaser.Scene {
           if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT)
             vis[y][x] = true;
     } else {
-      // 廊下: 周囲4マス（もう少し広く見える）
+      // 廊下: 周囲4マス
       for (let dy = -4; dy <= 4; dy++)
         for (let dx = -4; dx <= 4; dx++) {
           const nx = pp.x + dx, ny = pp.y + dy;
@@ -486,11 +465,9 @@ export class GameScene extends Phaser.Scene {
     this._hpTexts.forEach(t => t.destroy());
     this._hpTexts.clear();
     this._enemies = [];
-    if (this._fogRT) { this._fogRT.destroy(); this._fogRT = null; }
 
     this._generateDungeon();
     this._drawTiles();
-    this._initFog();
 
     const { x, y } = this._startPos;
     this._playerData.position = { x, y };
