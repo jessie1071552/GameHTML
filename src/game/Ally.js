@@ -58,16 +58,22 @@ export class Ally {
     const adjacent = this._findAdjacentEnemy(aliveEnemies);
     if (adjacent) return { type: 'attack', target: adjacent };
 
-    // ── 隣接していない場合はコマンドごとの移動方針に従う ───────
-    switch (this.command) {
-      case 'wait':
-        return null; // その場に留まる
-      case 'attack':
-        return this._attackBehavior(aliveEnemies, isWalkable, isOccupied);
-      case 'follow':
-      default:
-        return this._followBehavior(playerPos, isWalkable, isOccupied);
+    // ── wait: 隣接時のみ反撃。それ以外は完全にその場から動かない ──
+    if (this.command === 'wait') return null;
+
+    // ── follow / attack: プレイヤーが交戦中（プレイヤーに隣接する敵がいる）なら、
+    //     コマンドに関係なくその敵を攻撃できる位置まで詰め寄る ──
+    const engaging = this._findAdjacentEnemyTo(playerPos, aliveEnemies);
+    if (engaging) {
+      const move = this._stepToward(engaging.position.x, engaging.position.y, isWalkable, isOccupied);
+      return move ? { type: 'move', x: move.x, y: move.y } : null;
     }
+
+    // ── 交戦中でない場合はコマンドごとの移動方針に従う ─────────
+    if (this.command === 'attack') {
+      return this._attackBehavior(aliveEnemies, isWalkable, isOccupied);
+    }
+    return this._followBehavior(playerPos, isWalkable, isOccupied);
   }
 
   // ── attack: 最も近い敵に向かって自律的に近づいていく ──────────
@@ -90,13 +96,25 @@ export class Ally {
     return move ? { type: 'move', x: move.x, y: move.y } : null;
   }
 
-  // ── 隣接する敵を探す ──────────────────────────────────────
+  // ── 隣接する敵を探す（自分基準） ─────────────────────────────
   _findAdjacentEnemy(enemies) {
     return enemies.find(e => {
       const dx = Math.abs(e.position.x - this.position.x);
       const dy = Math.abs(e.position.y - this.position.y);
       return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
     }) ?? null;
+  }
+
+  // ── 指定座標（プレイヤー等）に隣接する敵を探す。複数いれば自分に最も近い敵を優先 ──
+  _findAdjacentEnemyTo(pos, enemies) {
+    const candidates = enemies.filter(e => {
+      const dx = Math.abs(e.position.x - pos.x);
+      const dy = Math.abs(e.position.y - pos.y);
+      return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
+    });
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+    return this._findNearestEnemy(candidates);
   }
 
   // ── 最も近い敵を探す（マンハッタン距離） ───────────────────
