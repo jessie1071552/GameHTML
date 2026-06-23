@@ -1,0 +1,26 @@
+{
+  "id": "orc",
+  "name": "オーク",
+  "baseStats": {
+    "hp": 50,
+    "attack": 12,
+    "defense": 4
+  },
+  "growthRate": {
+    "hp": 6,
+    "attack": 2,
+    "defense": 1
+  },
+  "expDrop": 20,
+  "expToLevel": 25,
+  "joinRate": 0.15,
+  "initialSkills": ["tackle", "slash"],
+  "learnset": [
+    { "level": 5, "skillId": "quake" },
+    { "level": 9, "skillId": "charge" }
+  ],
+  "enemyVariant": {
+    "levelRange": [3, 8],
+    "statMultiplier": 1.0
+  }
+}

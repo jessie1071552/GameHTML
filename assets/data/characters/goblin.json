@@ -1,0 +1,26 @@
+{
+  "id": "goblin",
+  "name": "ゴブリン",
+  "baseStats": {
+    "hp": 30,
+    "attack": 8,
+    "defense": 2
+  },
+  "growthRate": {
+    "hp": 4,
+    "attack": 2,
+    "defense": 1
+  },
+  "expDrop": 12,
+  "expToLevel": 20,
+  "joinRate": 0.25,
+  "initialSkills": ["tackle", "slash"],
+  "learnset": [
+    { "level": 4, "skillId": "ember" },
+    { "level": 8, "skillId": "heal" }
+  ],
+  "enemyVariant": {
+    "levelRange": [2, 6],
+    "statMultiplier": 1.0
+  }
+}

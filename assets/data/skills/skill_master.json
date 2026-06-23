@@ -1,0 +1,50 @@
+{
+  "tackle": {
+    "id": "tackle",
+    "name": "たいあたり",
+    "type": "attack",
+    "power": 20,
+    "pp": 20,
+    "range": "adjacent"
+  },
+  "ember": {
+    "id": "ember",
+    "name": "ひのこ",
+    "type": "attack",
+    "power": 35,
+    "pp": 10,
+    "range": "line"
+  },
+  "slash": {
+    "id": "slash",
+    "name": "きりさく",
+    "type": "attack",
+    "power": 30,
+    "pp": 12,
+    "range": "adjacent"
+  },
+  "quake": {
+    "id": "quake",
+    "name": "じわれ",
+    "type": "attack",
+    "power": 25,
+    "pp": 8,
+    "range": "area"
+  },
+  "heal": {
+    "id": "heal",
+    "name": "かいふく",
+    "type": "heal",
+    "power": 30,
+    "pp": 5,
+    "range": "self"
+  },
+  "charge": {
+    "id": "charge",
+    "name": "チャージ",
+    "type": "attack",
+    "power": 45,
+    "pp": 6,
+    "range": "line"
+  }
+}

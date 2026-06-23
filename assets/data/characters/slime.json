@@ -1,0 +1,25 @@
+{
+  "id": "slime",
+  "name": "スライム",
+  "baseStats": {
+    "hp": 20,
+    "attack": 5,
+    "defense": 1
+  },
+  "growthRate": {
+    "hp": 3,
+    "attack": 1,
+    "defense": 0
+  },
+  "expDrop": 8,
+  "expToLevel": 15,
+  "joinRate": 0.4,
+  "initialSkills": ["tackle"],
+  "learnset": [
+    { "level": 5, "skillId": "heal" }
+  ],
+  "enemyVariant": {
+    "levelRange": [1, 4],
+    "statMultiplier": 1.0
+  }
+}

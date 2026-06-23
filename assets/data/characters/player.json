@@ -1,0 +1,21 @@
+{
+  "id": "player",
+  "name": "冒険者",
+  "baseStats": {
+    "hp": 60,
+    "attack": 15,
+    "defense": 5
+  },
+  "growthRate": {
+    "hp": 8,
+    "attack": 2,
+    "defense": 1
+  },
+  "expToLevel": 20,
+  "initialSkills": ["tackle"],
+  "learnset": [
+    { "level": 3, "skillId": "ember" },
+    { "level": 6, "skillId": "heal" },
+    { "level": 10, "skillId": "charge" }
+  ]
+}
