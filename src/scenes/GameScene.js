@@ -571,17 +571,17 @@ export class GameScene extends Phaser.Scene {
     this.game.events.emit('ui-recruit-close');
 
     if (accepted) {
-      let ally;
+      // Ally クラスインスタンスを使うことで decideAction などのメソッドを保証する
+      const ally = Ally.fromEnemy(enemy);
+      // Factory が持つスキル・レベルアップ情報を上書きする
       if (this._factory.isReady) {
         const data = this._factory.createAllyFromEnemy(enemy, enemy.position);
         if (data) {
-          // Ally.jsの形式に合わせる
-          data.instanceId = `ally_${Date.now()}`;
-          data.isDead = false;
-          ally = data;
+          ally.skills    = data.skills;
+          ally.def       = data.def;
+          ally.expToNext = data.expToNext;
         }
       }
-      if (!ally) ally = Ally.fromEnemy(enemy); // フォールバック
 
       this._allies.push(ally);
       this._createAllySprite(ally);
