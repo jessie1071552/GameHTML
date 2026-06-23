@@ -524,6 +524,8 @@ export class GameScene extends Phaser.Scene {
     if (entity.exp === undefined) entity.exp = 0;
     entity.exp = entity.exp + amount;
 
+    console.log('[EXP]', entity.name ?? entity.type, 'exp:', entity.exp, '/', entity.expToNext, 'def:', !!entity.def);
+
     const { leveledUp, newSkills } = this._factory.tryLevelUp(entity);
     if (leveledUp) {
       const name = entity.name ?? entity.characterId ?? '冒険者';
@@ -602,6 +604,8 @@ export class GameScene extends Phaser.Scene {
     for (const ally of this._allies) {
       if (ally.isDead) continue;
 
+      console.log('[ALLY]', ally.characterId, 'hasDecideAction:', typeof ally.decideAction, 'command:', ally.command, 'pos:', ally.position);
+
       const action = ally.decideAction
         ? ally.decideAction(
             pp, this._enemies,
@@ -609,6 +613,8 @@ export class GameScene extends Phaser.Scene {
             (x, y) => (x === pp.x && y === pp.y) || this._isAnyOccupied(x, y, ally.instanceId),
           )
         : null;
+
+      console.log('[ALLY] action:', JSON.stringify(action));
 
       if (!action) continue;
 
