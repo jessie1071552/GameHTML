@@ -521,8 +521,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   _grantExp(entity, amount) {
-    if (!entity.exp !== undefined) entity.exp = 0;
-    entity.exp = (entity.exp ?? 0) + amount;
+    if (entity.exp === undefined) entity.exp = 0;
+    entity.exp = entity.exp + amount;
 
     const { leveledUp, newSkills } = this._factory.tryLevelUp(entity);
     if (leveledUp) {
